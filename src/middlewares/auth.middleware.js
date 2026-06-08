@@ -28,3 +28,20 @@ export function isAuthenticated(req, res, next) {
     next(createError(401, "Unauthorized, missing credentials"));
   }
 }
+
+export async function isAdmin(req, res, next) {
+  try {
+    const { rows } = await db.query(
+      "SELECT * FROM admins WHERE user_id = $1",
+      [req.user.id]
+    );
+
+    if (rows.length > 0) {
+      next();
+    } else {
+      next(createError(403, "Forbidden, you are not an admin"));
+    }
+  } catch (error) {
+    next(error);
+  }
+}
