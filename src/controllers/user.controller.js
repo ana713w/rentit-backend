@@ -10,7 +10,7 @@ export async function register(req, res, next) {
 
         const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
         if (existing.rows.length > 0) {
-            return next(createError(409, 'El email ya está registrado'));
+            return next(createError(409, 'Email already registered'));
         }
 
         const passwordHash = await bcrypt.hash(password, PASSWORD_SALT_ROUNDS);
@@ -23,6 +23,15 @@ export async function register(req, res, next) {
         );
 
         res.status(201).json(rows[0]);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getMe(req, res, next) {
+    try {
+        const { rows } = await db.query('SELECT 1 FROM admins WHERE user_id = $1', [req.user.id]);
+        res.json({ ...req.user, isAdmin: rows.length > 0 });
     } catch (error) {
         next(error);
     }
