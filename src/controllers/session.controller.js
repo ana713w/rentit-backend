@@ -10,13 +10,15 @@ export async function login(req, res, next) {
         const user = rows[0];
 
         if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-            return next(createError(401, 'Credenciales inválidas'));
+            return next(createError(401, 'Invalid credentials'));
         }
 
         req.session.userId = user.id;
 
+        const { rows: adminRows } = await db.query('SELECT 1 FROM admins WHERE user_id = $1', [user.id]);
+
         const { password_hash, ...safeUser } = user;
-        res.json(safeUser);
+        res.json({ ...safeUser, isAdmin: adminRows.length > 0 });
     } catch (error) {
         next(error);
     }
