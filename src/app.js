@@ -19,7 +19,7 @@ app.use(loadSessionUser);
 
 /* API Routes Configuration */
 app.use("/api/v1", routes);
-app.use((req, res, next) => next(createError(404, 'Endpoint no encontrado')));
+app.use((req, res, next) => next(createError(404, 'Endpoint not found')));
 
 app.use(errorHandler);
 

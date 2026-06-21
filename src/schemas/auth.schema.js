@@ -3,24 +3,24 @@ import { z } from 'zod';
 export const registerSchema = z.object({
     email: z
         .string()
-        .email('El email no es válido')
-        .max(255, 'El email debe tener máximo 255 caracteres'),
+        .email('Invalid email')
+        .max(255, 'Email must be at most 255 characters'),
     password: z
         .string()
-        .min(8, 'La contraseña debe tener al menos 8 caracteres')
-        .regex(/[A-Z]/, 'La contraseña debe contener al menos una mayúscula')
-        .regex(/[0-9]/, 'La contraseña debe contener al menos un número'),
+        .min(8, 'Password must be at least 8 characters long')
+        .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+        .regex(/[0-9]/, 'Password must contain at least one number'),
     fullName: z
         .string()
-        .min(1, 'El nombre completo es obligatorio')
-        .max(150, 'El nombre completo debe tener máximo 150 caracteres'),
+        .min(1, 'Full name is required')
+        .max(150, 'Full name must be at most 150 characters'),
     phone: z
         .string()
-        .max(30, 'El teléfono debe tener máximo 30 caracteres')
+        .max(30, 'Phone must be at most 30 characters')
         .optional(),
 });
 
 export const loginSchema = z.object({
-    email: z.string().email('El email no es válido'),
-    password: z.string().min(1, 'La contraseña es obligatoria'),
+    email: z.string().email('Invalid email'),
+    password: z.string().min(1, 'Password is required'),
 });
