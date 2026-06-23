@@ -16,8 +16,10 @@ export async function promoteToAdmin(req, res, next) {
             return next(createHttpError(400, "User is already an admin"));
         }
 
-        res.status(201).json({ message: "User promoted to admin successfully" });
+        await db.query("INSERT INTO admins (user_id) VALUES ($1)", [userId]);
 
+        res.status(201).json({ message: "User promoted to admin successfully" });
+    
     } catch (error) {
         next(error);
     }
