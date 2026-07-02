@@ -2,6 +2,8 @@
 
 -- gen_random_uuid() es nativo desde Postgres 13; esta extension es solo un respaldo si tu version es mas vieja
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- necesaria para los EXCLUDE USING gist de mas abajo (comparar property_id, un uuid, junto a un rango de fechas)
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -36,4 +38,93 @@ CREATE TABLE IF NOT EXISTS properties (
     CONSTRAINT deposit_between_3_and_365_days CHECK (
         deposit_amount >= price_per_day * 3 AND deposit_amount <= price_per_day * 365
     )
+);
+
+CREATE TABLE IF NOT EXISTS property_images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    storage_path TEXT NOT NULL, -- ruta dentro del bucket de Firebase, necesaria para poder borrar el archivo despues
+    is_primary BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Solo una imagen "portada" por propiedad
+CREATE UNIQUE INDEX IF NOT EXISTS one_primary_image_per_property
+    ON property_images (property_id) WHERE is_primary = true;
+
+CREATE TABLE IF NOT EXISTS property_blocked_dates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    date_range DATERANGE NOT NULL,
+    reason VARCHAR(255),                        -- SUPUESTO: nullable, motivo opcional del bloqueo
+    created_at TIMESTAMP DEFAULT NOW(),
+    -- evita que el propio dueño registre dos bloqueos que se solapen en la misma propiedad
+    EXCLUDE USING gist (property_id WITH =, date_range WITH &&)
+);
+
+CREATE TABLE IF NOT EXISTS reservations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    guest_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date_range DATERANGE NOT NULL,
+    price_per_day NUMERIC(10,2) NOT NULL,       -- snapshot de properties.price_per_day al momento de reservar
+    deposit_amount NUMERIC(10,2) NOT NULL,      -- snapshot de properties.deposit_amount al momento de reservar
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT valid_reservation_status CHECK (
+        status IN ('pending', 'confirmed', 'rejected', 'cancelled', 'completed')
+    ),
+    CONSTRAINT deposit_between_3_and_365_days CHECK (
+        deposit_amount >= price_per_day * 3 AND deposit_amount <= price_per_day * 365
+    ),
+    -- solo las reservas confirmadas ocupan de verdad el calendario; dos pending pueden coexistir,
+    -- gana la primera que el dueño confirme (ver reservation.controller.js)
+    EXCLUDE USING gist (property_id WITH =, date_range WITH &&) WHERE (status = 'confirmed')
+);
+
+-- Cada reserva puede generar hasta 2 contratos independientes: 'rental' (al inicio) y 'return' (al final),
+-- cada uno con su propio par de firmas (huesped/dueño), firma simple + OTP por email
+CREATE TABLE IF NOT EXISTS contracts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    contract_type VARCHAR(20) NOT NULL,
+    content_hash TEXT NOT NULL,          -- SHA-256 del texto del contrato, fijo desde la creacion, igual para ambos firmantes
+    document_url TEXT,                   -- url del PDF final, solo se rellena cuando ambas partes firmaron
+    document_storage_path TEXT,
+    guest_signed_at TIMESTAMP,
+    guest_signature_ip VARCHAR(45),      -- SUPUESTO: 45 cubre IPv6 con margen
+    guest_otp_hash TEXT,                 -- hash bcrypt del OTP pendiente, se limpia al firmar
+    guest_otp_expires_at TIMESTAMP,
+    owner_signed_at TIMESTAMP,
+    owner_signature_ip VARCHAR(45),
+    owner_otp_hash TEXT,
+    owner_otp_expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT valid_contract_type CHECK (contract_type IN ('rental', 'return')),
+    CONSTRAINT one_contract_per_type_per_reservation UNIQUE (reservation_id, contract_type)
+);
+
+-- Una verificacion compartida por reserva y etapa (check_in / check_out); huesped y dueño
+-- suben fotos a la MISMA verificacion, cada foto queda etiquetada con quien la subio
+CREATE TABLE IF NOT EXISTS verifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    verification_type VARCHAR(20) NOT NULL,
+    notes TEXT,                          -- SUPUESTO: nullable, descripcion libre del estado de la propiedad
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT valid_verification_type CHECK (verification_type IN ('check_in', 'check_out')),
+    CONSTRAINT one_verification_per_type_per_reservation UNIQUE (reservation_id, verification_type)
+);
+
+CREATE TABLE IF NOT EXISTS verification_photos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    verification_id UUID NOT NULL REFERENCES verifications(id) ON DELETE CASCADE,
+    uploaded_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
 );
