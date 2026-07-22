@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test" : "jest --watchAll"
+    "test": "jest --watchAll"
   },
   "repository": {
     "type": "git",
@@ -32,10 +32,12 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "firebase-admin": "^14.2.0",
+    "firebase-admin": "^14.3.0",
     "http-errors": "^2.0.1",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
+    "nodemailer": "^9.1.0",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.23.0",
     "swagger-ui-express": "^5.0.1",
     "zod": "^4.4.3"
