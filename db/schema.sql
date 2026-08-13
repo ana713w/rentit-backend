@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     full_name VARCHAR(150) NOT NULL,
     phone VARCHAR(30),
+    stripe_account_id VARCHAR(255), -- id de la cuenta Stripe Connect Express del usuario cuando actua como owner (Modulo 9)
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -127,4 +128,30 @@ CREATE TABLE IF NOT EXISTS verification_photos (
     url TEXT NOT NULL,
     storage_path TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- users ya existia antes del Modulo 9; esta columna se añade aparte para que una base ya creada
+-- (con CREATE TABLE IF NOT EXISTS de por medio) tambien la reciba al re-ejecutar este script
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255);
+
+-- Un pago por reserva: alquiler con captura automatica (se transfiere al dueño via Stripe Connect,
+-- menos la comision de la plataforma) y deposito con captura manual (se autoriza/retiene al confirmar
+-- la reserva, y se captura total, parcial o se libera despues del check-out / de una disputa)
+CREATE TABLE IF NOT EXISTS payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_id UUID NOT NULL UNIQUE REFERENCES reservations(id) ON DELETE CASCADE,
+    rent_amount NUMERIC(10,2) NOT NULL,
+    deposit_amount NUMERIC(10,2) NOT NULL,
+    platform_fee_amount NUMERIC(10,2) NOT NULL,
+    rent_payment_intent_id VARCHAR(255),
+    rent_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    deposit_payment_intent_id VARCHAR(255),
+    deposit_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    deposit_captured_amount NUMERIC(10,2), -- SUPUESTO: nullable, solo se rellena si se captura (total o parcialmente)
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT valid_rent_status CHECK (rent_status IN ('pending', 'succeeded', 'failed', 'refunded')),
+    CONSTRAINT valid_deposit_status CHECK (
+        deposit_status IN ('pending', 'authorized', 'captured', 'released', 'canceled', 'failed')
+    )
 );
