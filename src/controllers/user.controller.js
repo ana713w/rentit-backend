@@ -31,7 +31,8 @@ export async function register(req, res, next) {
 export async function getMe(req, res, next) {
     try {
         const { rows } = await db.query('SELECT 1 FROM admins WHERE user_id = $1', [req.user.id]);
-        res.json({ ...req.user, isAdmin: rows.length > 0 });
+        const { stripe_account_id, ...safeUser } = req.user;
+        res.json({ ...safeUser, isAdmin: rows.length > 0 });
     } catch (error) {
         next(error);
     }

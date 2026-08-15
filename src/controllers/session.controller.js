@@ -17,7 +17,7 @@ export async function login(req, res, next) {
 
         const { rows: adminRows } = await db.query('SELECT 1 FROM admins WHERE user_id = $1', [user.id]);
 
-        const { password_hash, ...safeUser } = user;
+        const { password_hash, stripe_account_id, ...safeUser } = user;
         res.json({ ...safeUser, isAdmin: adminRows.length > 0 });
     } catch (error) {
         next(error);
