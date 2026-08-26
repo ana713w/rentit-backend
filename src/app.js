@@ -6,9 +6,13 @@ import { errorHandler } from "./middlewares/errorHandler.middleware.js";
 import createError from "http-errors";
 import { loadSession } from "./config/session.config.js";
 import { loadSessionUser } from "./middlewares/auth.middleware.js";
+import { handleStripeWebhook } from "./controllers/payment.controller.js";
 
 
 const app = express();
+
+/* El webhook de Stripe necesita el body crudo para verificar la firma, antes de express.json() */
+app.post('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 /* Middlewares */
 app.use(corsMiddleware);
