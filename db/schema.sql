@@ -155,3 +155,25 @@ CREATE TABLE IF NOT EXISTS payments (
         deposit_status IN ('pending', 'authorized', 'captured', 'released', 'canceled', 'failed')
     )
 );
+
+-- Una disputa la puede abrir cualquiera de las dos partes (ej. dueño reclama daños, huesped no esta
+-- de acuerdo con un cargo); la resuelve un admin, y la resolucion puede disparar la captura/liberacion
+-- del deposito reutilizando la misma logica del Modulo 9 (ver applyDepositResolution en payment.controller.js)
+CREATE TABLE IF NOT EXISTS disputes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    raised_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    requested_capture_amount NUMERIC(10,2), -- SUPUESTO: nullable, cuanto del deposito pide retener quien abre la disputa (si aplica)
+    status VARCHAR(20) NOT NULL DEFAULT 'open',
+    resolution TEXT,
+    resolved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    resolved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT valid_dispute_status CHECK (status IN ('open', 'under_review', 'resolved'))
+);
+
+-- Solo una disputa activa (no resuelta) a la vez por reserva
+CREATE UNIQUE INDEX IF NOT EXISTS one_open_dispute_per_reservation
+    ON disputes (reservation_id) WHERE status <> 'resolved';
