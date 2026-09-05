@@ -15,6 +15,9 @@ import {
 } from '../controllers/reservation.controller.js';
 import { createContract, listReservationContracts } from '../controllers/contract.controller.js';
 import { createVerification, listReservationVerifications } from '../controllers/verification.controller.js';
+import { createReservationPayment, getReservationPayment } from '../controllers/payment.controller.js';
+import { createDisputeSchema } from '../schemas/dispute.schema.js';
+import { createDispute, listReservationDisputes } from '../controllers/dispute.controller.js';
 
 const router = Router();
 
@@ -31,5 +34,9 @@ router.post('/:id/contracts', validate(createContractSchema), createContract);
 router.get('/:id/contracts', listReservationContracts);
 router.post('/:id/verifications', validate(createVerificationSchema), createVerification);
 router.get('/:id/verifications', listReservationVerifications);
+router.post('/:id/payments', createReservationPayment);
+router.get('/:id/payments', getReservationPayment);
+router.post('/:id/disputes', validate(createDisputeSchema), createDispute);
+router.get('/:id/disputes', listReservationDisputes);
 
 export default router;
