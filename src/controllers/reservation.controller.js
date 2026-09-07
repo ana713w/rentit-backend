@@ -1,5 +1,6 @@
 import createError from 'http-errors';
 import { db } from '../db/index.js';
+import { cancelPaymentsForReservation } from './payment.controller.js';
 
 const RESERVATION_COLUMNS = `
     id, property_id, guest_id, to_char(lower(date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(date_range), 'YYYY-MM-DD') AS end_date,
@@ -187,11 +188,18 @@ export async function cancelReservation(req, res, next) {
             return next(createError(409, 'This reservation cannot be cancelled'));
         }
 
+        const wasConfirmed = reservation.status === 'confirmed';
+
         const { rows } = await db.query(
             `UPDATE reservations SET status = 'cancelled', updated_at = NOW()
              WHERE id = $1 RETURNING ${RESERVATION_COLUMNS}`,
             [reservation.id]
         );
+
+        if (wasConfirmed) {
+            await cancelPaymentsForReservation(reservation.id);
+        }
+
         res.json(rows[0]);
     } catch (error) {
         next(error);
