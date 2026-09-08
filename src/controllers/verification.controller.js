@@ -65,6 +65,13 @@ export async function createVerification(req, res, next) {
             return next(createError(409, 'This verification already exists for this reservation'));
         }
 
+        if (verificationType === 'check_out') {
+            await db.query(
+                `UPDATE reservations SET status = 'completed', updated_at = NOW() WHERE id = $1 AND status = 'confirmed'`,
+                [reservation.id]
+            );
+        }
+
         res.status(201).json(rows[0]);
     } catch (error) {
         next(error);
