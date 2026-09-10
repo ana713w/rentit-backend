@@ -14,6 +14,9 @@ export async function createProperty(req, res, next) {
 
         res.status(201).json(rows[0]);
     } catch (error) {
+        if (error.code === '23514') { // check_violation: deposito fuera del rango 3-365x el precio/dia
+            return next(createError(400, 'Deposit must be between 3 and 365 times the price per day'));
+        }
         next(error);
     }
 }
@@ -62,6 +65,10 @@ export async function updateProperty(req, res, next) {
             propertyType = property.property_type,
         } = req.body;
 
+        if (depositAmount < pricePerDay * 3 || depositAmount > pricePerDay * 365) {
+            return next(createError(400, 'Deposit must be between 3 and 365 times the price per day'));
+        }
+
         const { rows } = await db.query(
             `UPDATE properties
              SET title = $1, description = $2, address = $3, latitude = $4, longitude = $5,
@@ -73,6 +80,9 @@ export async function updateProperty(req, res, next) {
 
         res.json(rows[0]);
     } catch (error) {
+        if (error.code === '23514') {
+            return next(createError(400, 'Deposit must be between 3 and 365 times the price per day'));
+        }
         next(error);
     }
 }
