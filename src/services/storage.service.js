@@ -13,12 +13,21 @@ async function uploadBuffer(buffer, folder, filename, contentType) {
         stream.end(buffer);
     });
 
-    await blob.makePublic();
+    const url = await resolvePublicUrl(blob, bucket, path);
 
-    return {
-        url: `https://storage.googleapis.com/${bucket.name}/${path}`,
-        path,
-    };
+    return { url, path };
+}
+
+// Los buckets creados con Uniform Bucket-Level Access (default en proyectos GCP recientes) no admiten
+// ACLs por objeto, asi que makePublic() falla; en ese caso usamos una URL firmada de larga duracion
+async function resolvePublicUrl(blob, bucket, path) {
+    try {
+        await blob.makePublic();
+        return `https://storage.googleapis.com/${bucket.name}/${path}`;
+    } catch (error) {
+        const [signedUrl] = await blob.getSignedUrl({ action: 'read', expires: '01-01-2100' });
+        return signedUrl;
+    }
 }
 
 // Reutilizado por property_images y, mas adelante, por verification_photos
