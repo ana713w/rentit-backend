@@ -1,5 +1,6 @@
 import express from "express";
 import morgan from "morgan";
+import swaggerUi from "swagger-ui-express";
 import { corsMiddleware } from "./config/cors.config.js";
 import routes from "./config/routes.config.js";
 import { errorHandler } from "./middlewares/errorHandler.middleware.js";
@@ -7,6 +8,7 @@ import createError from "http-errors";
 import { loadSession } from "./config/session.config.js";
 import { loadSessionUser } from "./middlewares/auth.middleware.js";
 import { handleStripeWebhook } from "./controllers/payment.controller.js";
+import { openapiSpec } from "./docs/openapi.js";
 
 
 const app = express();
@@ -20,6 +22,9 @@ app.use(express.json());
 app.use(morgan("dev"));
 app.use(loadSession);
 app.use(loadSessionUser);
+
+/* API docs */
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 /* API Routes Configuration */
 app.use("/api/v1", routes);
