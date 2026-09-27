@@ -3,52 +3,52 @@ import { db } from '../db/index.js';
 import { cancelPaymentsForReservation } from './payment.controller.js';
 
 const RESERVATION_COLUMNS = `
-    id, property_id, guest_id, to_char(lower(date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(date_range), 'YYYY-MM-DD') AS end_date,
+    id, item_id, guest_id, to_char(lower(date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(date_range), 'YYYY-MM-DD') AS end_date,
     price_per_day, deposit_amount, status, created_at, updated_at
 `;
 
-async function hasDateConflict(propertyId, startDate, endDate) {
+async function hasDateConflict(itemId, startDate, endDate) {
     const { rows: blocked } = await db.query(
-        `SELECT id FROM property_blocked_dates
-         WHERE property_id = $1 AND date_range && daterange($2::date, $3::date, '[)')`,
-        [propertyId, startDate, endDate]
+        `SELECT id FROM item_blocked_dates
+         WHERE item_id = $1 AND date_range && daterange($2::date, $3::date, '[)')`,
+        [itemId, startDate, endDate]
     );
     if (blocked.length > 0) return true;
 
     const { rows: reserved } = await db.query(
         `SELECT id FROM reservations
-         WHERE property_id = $1 AND status = 'confirmed' AND date_range && daterange($2::date, $3::date, '[)')`,
-        [propertyId, startDate, endDate]
+         WHERE item_id = $1 AND status = 'confirmed' AND date_range && daterange($2::date, $3::date, '[)')`,
+        [itemId, startDate, endDate]
     );
     return reserved.length > 0;
 }
 
 export async function createReservation(req, res, next) {
     try {
-        const { propertyId, startDate, endDate } = req.body;
+        const { itemId, startDate, endDate } = req.body;
 
-        const { rows: properties } = await db.query('SELECT * FROM properties WHERE id = $1', [propertyId]);
-        const property = properties[0];
-        if (!property) return next(createError(404, 'Property not found'));
-        if (!property.is_active) return next(createError(400, 'This property is not available'));
-        if (property.owner_id === req.user.id) {
-            return next(createError(400, 'You cannot reserve your own property'));
+        const { rows: items } = await db.query('SELECT * FROM items WHERE id = $1', [itemId]);
+        const item = items[0];
+        if (!item) return next(createError(404, 'Item not found'));
+        if (!item.is_active) return next(createError(400, 'This item is not available'));
+        if (item.owner_id === req.user.id) {
+            return next(createError(400, 'You cannot reserve your own item'));
         }
-        if (await hasDateConflict(property.id, startDate, endDate)) {
-            return next(createError(409, 'The property is not available on those dates'));
+        if (await hasDateConflict(item.id, startDate, endDate)) {
+            return next(createError(409, 'The item is not available on those dates'));
         }
 
         const { rows } = await db.query(
-            `INSERT INTO reservations (property_id, guest_id, date_range, price_per_day, deposit_amount)
+            `INSERT INTO reservations (item_id, guest_id, date_range, price_per_day, deposit_amount)
              VALUES ($1, $2, daterange($3::date, $4::date, '[)'), $5, $6)
              RETURNING ${RESERVATION_COLUMNS}`,
-            [property.id, req.user.id, startDate, endDate, property.price_per_day, property.deposit_amount]
+            [item.id, req.user.id, startDate, endDate, item.price_per_day, item.deposit_amount]
         );
 
         res.status(201).json(rows[0]);
     } catch (error) {
         if (error.code === '23P01') { // exclusion_violation: alguien confirmo esas fechas justo antes
-            return next(createError(409, 'The property is not available on those dates'));
+            return next(createError(409, 'The item is not available on those dates'));
         }
         next(error);
     }
@@ -69,11 +69,11 @@ export async function listMyReservations(req, res, next) {
 export async function listOwnerReservations(req, res, next) {
     try {
         const { rows } = await db.query(
-            `SELECT r.id, r.property_id, r.guest_id, to_char(lower(r.date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(r.date_range), 'YYYY-MM-DD') AS end_date,
+            `SELECT r.id, r.item_id, r.guest_id, to_char(lower(r.date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(r.date_range), 'YYYY-MM-DD') AS end_date,
                     r.price_per_day, r.deposit_amount, r.status, r.created_at, r.updated_at
              FROM reservations r
-             JOIN properties p ON p.id = r.property_id
-             WHERE p.owner_id = $1
+             JOIN items i ON i.id = r.item_id
+             WHERE i.owner_id = $1
              ORDER BY r.created_at DESC`,
             [req.user.id]
         );
@@ -85,8 +85,8 @@ export async function listOwnerReservations(req, res, next) {
 
 async function findReservationWithOwner(id) {
     const { rows } = await db.query(
-        `SELECT r.*, p.owner_id
-         FROM reservations r JOIN properties p ON p.id = r.property_id
+        `SELECT r.*, i.owner_id
+         FROM reservations r JOIN items i ON i.id = r.item_id
          WHERE r.id = $1`,
         [id]
     );
@@ -110,7 +110,7 @@ export async function acceptReservation(req, res, next) {
     try {
         const reservation = await findReservationWithOwner(req.params.id);
         if (reservation.owner_id !== req.user.id) {
-            return next(createError(403, 'Only the property owner can accept this reservation'));
+            return next(createError(403, 'Only the item owner can accept this reservation'));
         }
         if (reservation.status !== 'pending') {
             return next(createError(409, 'Only pending reservations can be accepted'));
@@ -118,16 +118,16 @@ export async function acceptReservation(req, res, next) {
 
         const { rows: conflicting } = await db.query(
             `SELECT id FROM reservations
-             WHERE property_id = $1 AND status = 'confirmed' AND id <> $2 AND date_range && $3`,
-            [reservation.property_id, reservation.id, reservation.date_range]
+             WHERE item_id = $1 AND status = 'confirmed' AND id <> $2 AND date_range && $3`,
+            [reservation.item_id, reservation.id, reservation.date_range]
         );
         if (conflicting.length > 0) {
             return next(createError(409, 'These dates were already confirmed for another reservation'));
         }
 
         const { rows: blocked } = await db.query(
-            `SELECT id FROM property_blocked_dates WHERE property_id = $1 AND date_range && $2`,
-            [reservation.property_id, reservation.date_range]
+            `SELECT id FROM item_blocked_dates WHERE item_id = $1 AND date_range && $2`,
+            [reservation.item_id, reservation.date_range]
         );
         if (blocked.length > 0) {
             return next(createError(409, 'The owner blocked these dates before this reservation was accepted'));
@@ -142,8 +142,8 @@ export async function acceptReservation(req, res, next) {
         // al confirmar una, las demas solicitudes pendientes que se solapaban ya no tienen sentido
         await db.query(
             `UPDATE reservations SET status = 'rejected', updated_at = NOW()
-             WHERE property_id = $1 AND status = 'pending' AND id <> $2 AND date_range && $3`,
-            [reservation.property_id, reservation.id, reservation.date_range]
+             WHERE item_id = $1 AND status = 'pending' AND id <> $2 AND date_range && $3`,
+            [reservation.item_id, reservation.id, reservation.date_range]
         );
 
         res.json(rows[0]);
@@ -159,7 +159,7 @@ export async function rejectReservation(req, res, next) {
     try {
         const reservation = await findReservationWithOwner(req.params.id);
         if (reservation.owner_id !== req.user.id) {
-            return next(createError(403, 'Only the property owner can reject this reservation'));
+            return next(createError(403, 'Only the item owner can reject this reservation'));
         }
         if (reservation.status !== 'pending') {
             return next(createError(409, 'Only pending reservations can be rejected'));

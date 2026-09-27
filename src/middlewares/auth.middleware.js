@@ -11,7 +11,7 @@ export async function loadSessionUser(req, res, next) {
 
   try {
     const { rows } = await db.query(
-      "SELECT id, email, full_name, phone, stripe_account_id FROM users WHERE id = $1",
+      "SELECT id, email, full_name, phone, address, latitude, longitude, stripe_account_id FROM users WHERE id = $1",
       [userId]
     );
     req.user = rows[0];

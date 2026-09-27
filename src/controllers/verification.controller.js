@@ -4,8 +4,8 @@ import { uploadImage, deleteFile } from '../services/storage.service.js';
 
 async function loadReservationForVerification(reservationId) {
     const { rows } = await db.query(
-        `SELECT r.id, r.status, r.guest_id, p.owner_id
-         FROM reservations r JOIN properties p ON p.id = r.property_id
+        `SELECT r.id, r.status, r.guest_id, i.owner_id
+         FROM reservations r JOIN items i ON i.id = r.item_id
          WHERE r.id = $1`,
         [reservationId]
     );
@@ -16,10 +16,10 @@ async function loadReservationForVerification(reservationId) {
 
 async function findVerificationForUser(verificationId, userId) {
     const { rows } = await db.query(
-        `SELECT v.*, r.guest_id, p.owner_id
+        `SELECT v.*, r.guest_id, i.owner_id
          FROM verifications v
          JOIN reservations r ON r.id = v.reservation_id
-         JOIN properties p ON p.id = r.property_id
+         JOIN items i ON i.id = r.item_id
          WHERE v.id = $1`,
         [verificationId]
     );

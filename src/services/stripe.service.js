@@ -2,14 +2,22 @@ import { getStripeClient } from '../config/stripe.config.js';
 
 const toCents = (amount) => Math.round(Number(amount) * 100);
 
+// Accounts v2: los cobros son destination charges sin on_behalf_of, asi que el dueño solo necesita
+// la configuracion "recipient" (recibir transferencias); la plataforma es el merchant of record
 export async function createConnectAccount(email) {
     const stripe = getStripeClient();
-    const account = await stripe.accounts.create({
-        type: 'express',
-        email,
-        capabilities: {
-            card_payments: { requested: true },
-            transfers: { requested: true },
+    const account = await stripe.v2.core.accounts.create({
+        contact_email: email,
+        dashboard: 'express',
+        identity: { country: 'es' },
+        defaults: {
+            currency: 'eur',
+            responsibilities: { fees_collector: 'application', losses_collector: 'application' },
+        },
+        configuration: {
+            recipient: {
+                capabilities: { stripe_balance: { stripe_transfers: { requested: true } } },
+            },
         },
     });
     return account.id;
@@ -17,22 +25,36 @@ export async function createConnectAccount(email) {
 
 export async function createOnboardingLink(accountId) {
     const stripe = getStripeClient();
-    const link = await stripe.accountLinks.create({
+    const link = await stripe.v2.core.accountLinks.create({
         account: accountId,
-        refresh_url: `${process.env.CLIENT_URL}/stripe/onboarding/refresh`,
-        return_url: `${process.env.CLIENT_URL}/stripe/onboarding/complete`,
-        type: 'account_onboarding',
+        use_case: {
+            type: 'account_onboarding',
+            account_onboarding: {
+                configurations: ['recipient'],
+                refresh_url: `${process.env.CLIENT_URL}/stripe/onboarding/refresh`,
+                return_url: `${process.env.CLIENT_URL}/stripe/onboarding/complete`,
+            },
+        },
     });
     return link.url;
 }
 
+const OUTSTANDING = ['currently_due', 'past_due'];
+
+// Se mantienen los nombres de campo de v1 para no romper el frontend
 export async function getAccountStatus(accountId) {
     const stripe = getStripeClient();
-    const account = await stripe.accounts.retrieve(accountId);
+    const account = await stripe.v2.core.accounts.retrieve(accountId, {
+        include: ['configuration.recipient', 'requirements'],
+    });
+    const balance = account.configuration?.recipient?.capabilities?.stripe_balance;
+    const pendingUserAction = (account.requirements?.entries ?? []).some(
+        (entry) => entry.awaiting_action_from === 'user' && OUTSTANDING.includes(entry.minimum_deadline?.status)
+    );
     return {
-        chargesEnabled: account.charges_enabled,
-        payoutsEnabled: account.payouts_enabled,
-        detailsSubmitted: account.details_submitted,
+        chargesEnabled: balance?.stripe_transfers?.status === 'active',
+        payoutsEnabled: balance?.payouts?.status === 'active',
+        detailsSubmitted: !pendingUserAction,
     };
 }
 

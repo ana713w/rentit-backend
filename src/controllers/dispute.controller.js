@@ -4,8 +4,8 @@ import { applyDepositResolution } from './payment.controller.js';
 
 async function loadReservationForDispute(reservationId) {
     const { rows } = await db.query(
-        `SELECT r.id, r.guest_id, p.owner_id
-         FROM reservations r JOIN properties p ON p.id = r.property_id
+        `SELECT r.id, r.guest_id, i.owner_id
+         FROM reservations r JOIN items i ON i.id = r.item_id
          WHERE r.id = $1`,
         [reservationId]
     );
@@ -67,10 +67,10 @@ export async function listAllDisputes(req, res, next) {
 
 async function findDisputeWithParties(disputeId) {
     const { rows } = await db.query(
-        `SELECT d.*, r.guest_id, p.owner_id
+        `SELECT d.*, r.guest_id, i.owner_id
          FROM disputes d
          JOIN reservations r ON r.id = d.reservation_id
-         JOIN properties p ON p.id = r.property_id
+         JOIN items i ON i.id = r.item_id
          WHERE d.id = $1`,
         [disputeId]
     );

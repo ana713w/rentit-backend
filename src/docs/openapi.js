@@ -19,7 +19,7 @@ export const openapiSpec = {
         title: 'RentIt API',
         version: '1.0.0',
         description:
-            'API de alquiler de propiedades entre particulares: reservas con aprobacion del propietario, ' +
+            'API de alquiler de objetos entre particulares: reservas con aprobacion del propietario, ' +
             'contratos firmados por OTP, verificaciones de check-in/check-out con fotos, pagos con Stripe Connect ' +
             '(alquiler + deposito de garantia) y disputas resueltas por un administrador.',
     },
@@ -27,8 +27,8 @@ export const openapiSpec = {
     tags: [
         { name: 'Auth' },
         { name: 'Admin' },
-        { name: 'Properties' },
-        { name: 'Property Images' },
+        { name: 'Items' },
+        { name: 'Item Images' },
         { name: 'Blocked Dates' },
         { name: 'Reservations' },
         { name: 'Contracts' },
@@ -64,21 +64,21 @@ export const openapiSpec = {
                     email: { type: 'string', format: 'email' },
                     fullName: { type: 'string' },
                     phone: { type: 'string', nullable: true },
+                    address: { type: 'string', nullable: true, description: "Where the user's items are picked up and returned" },
+                    latitude: { type: 'number', nullable: true },
+                    longitude: { type: 'number', nullable: true },
                 },
             },
-            Property: {
+            Item: {
                 type: 'object',
                 properties: {
                     id: { type: 'string', format: 'uuid' },
                     owner_id: { type: 'string', format: 'uuid' },
                     title: { type: 'string' },
                     description: { type: 'string', nullable: true },
-                    address: { type: 'string' },
-                    latitude: { type: 'number', nullable: true },
-                    longitude: { type: 'number', nullable: true },
                     price_per_day: { type: 'number' },
                     deposit_amount: { type: 'number' },
-                    property_type: { type: 'string' },
+                    category: { type: 'string' },
                     is_active: { type: 'boolean' },
                     created_at: { type: 'string', format: 'date-time' },
                     updated_at: { type: 'string', format: 'date-time' },
@@ -88,7 +88,7 @@ export const openapiSpec = {
                 type: 'object',
                 properties: {
                     id: { type: 'string', format: 'uuid' },
-                    property_id: { type: 'string', format: 'uuid' },
+                    item_id: { type: 'string', format: 'uuid' },
                     guest_id: { type: 'string', format: 'uuid' },
                     start_date: { type: 'string', format: 'date' },
                     end_date: { type: 'string', format: 'date' },
@@ -184,6 +184,9 @@ export const openapiSpec = {
                                     password: { type: 'string', minLength: 8 },
                                     fullName: { type: 'string' },
                                     phone: { type: 'string' },
+                                    address: { type: 'string' },
+                                    latitude: { type: 'number' },
+                                    longitude: { type: 'number' },
                                 },
                             },
                         },
@@ -236,6 +239,32 @@ export const openapiSpec = {
                     401: errorResponse('Not authenticated'),
                 },
             },
+            patch: {
+                tags: ['Auth'],
+                summary: 'Update the current user profile (name, phone, address)',
+                security: cookieAuth,
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                properties: {
+                                    fullName: { type: 'string' },
+                                    phone: { type: 'string' },
+                                    address: { type: 'string' },
+                                    latitude: { type: 'number' },
+                                    longitude: { type: 'number' },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    200: { description: 'Profile updated', content: { 'application/json': { schema: { $ref: '#/components/schemas/User' } } } },
+                    400: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationError' } } } },
+                    401: errorResponse('Not authenticated'),
+                },
+            },
         },
         '/admin/promote': {
             post: {
@@ -249,15 +278,15 @@ export const openapiSpec = {
                 responses: { 201: { description: 'User promoted' }, 403: errorResponse('Admin only'), 404: errorResponse('User not found') },
             },
         },
-        '/properties': {
+        '/items': {
             get: {
-                tags: ['Properties'],
-                summary: 'List active properties',
-                responses: { 200: { description: 'List of properties', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Property' } } } } } },
+                tags: ['Items'],
+                summary: 'List active items',
+                responses: { 200: { description: 'List of items', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Item' } } } } } },
             },
             post: {
-                tags: ['Properties'],
-                summary: 'Create a property (becomes its owner)',
+                tags: ['Items'],
+                summary: 'Create an item (becomes its owner). Requires an address in the user profile, where the item is picked up',
                 security: cookieAuth,
                 requestBody: {
                     required: true,
@@ -265,37 +294,34 @@ export const openapiSpec = {
                         'application/json': {
                             schema: {
                                 type: 'object',
-                                required: ['title', 'address', 'pricePerDay', 'depositAmount', 'propertyType'],
+                                required: ['title', 'pricePerDay', 'depositAmount', 'category'],
                                 properties: {
                                     title: { type: 'string' },
                                     description: { type: 'string' },
-                                    address: { type: 'string' },
-                                    latitude: { type: 'number' },
-                                    longitude: { type: 'number' },
                                     pricePerDay: { type: 'number' },
                                     depositAmount: { type: 'number', description: 'Must be between 3x and 365x pricePerDay' },
-                                    propertyType: { type: 'string' },
+                                    category: { type: 'string' },
                                 },
                             },
                         },
                     },
                 },
                 responses: {
-                    201: { description: 'Property created', content: { 'application/json': { schema: { $ref: '#/components/schemas/Property' } } } },
-                    400: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationError' } } } },
+                    201: { description: 'Item created', content: { 'application/json': { schema: { $ref: '#/components/schemas/Item' } } } },
+                    400: { description: 'Validation error, or the owner has no address in their profile', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationError' } } } },
                 },
             },
         },
-        '/properties/{id}': {
-            parameters: [idParam('id', 'Property id')],
+        '/items/{id}': {
+            parameters: [idParam('id', 'Item id')],
             get: {
-                tags: ['Properties'],
-                summary: 'Get a property by id',
-                responses: { 200: { description: 'Property', content: { 'application/json': { schema: { $ref: '#/components/schemas/Property' } } } }, 404: errorResponse('Property not found') },
+                tags: ['Items'],
+                summary: 'Get an item by id',
+                responses: { 200: { description: 'Item', content: { 'application/json': { schema: { $ref: '#/components/schemas/Item' } } } }, 404: errorResponse('Item not found') },
             },
             patch: {
-                tags: ['Properties'],
-                summary: 'Update a property (owner only)',
+                tags: ['Items'],
+                summary: 'Update an item (owner only)',
                 security: cookieAuth,
                 requestBody: {
                     content: {
@@ -305,52 +331,49 @@ export const openapiSpec = {
                                 properties: {
                                     title: { type: 'string' },
                                     description: { type: 'string' },
-                                    address: { type: 'string' },
-                                    latitude: { type: 'number' },
-                                    longitude: { type: 'number' },
                                     pricePerDay: { type: 'number' },
                                     depositAmount: { type: 'number' },
-                                    propertyType: { type: 'string' },
+                                    category: { type: 'string' },
                                 },
                             },
                         },
                     },
                 },
                 responses: {
-                    200: { description: 'Property updated', content: { 'application/json': { schema: { $ref: '#/components/schemas/Property' } } } },
+                    200: { description: 'Item updated', content: { 'application/json': { schema: { $ref: '#/components/schemas/Item' } } } },
                     400: errorResponse('Invalid deposit/price ratio'),
                     403: errorResponse('Not the owner'),
                 },
             },
             delete: {
-                tags: ['Properties'],
-                summary: 'Deactivate a property (owner only)',
+                tags: ['Items'],
+                summary: 'Deactivate an item (owner only)',
                 security: cookieAuth,
-                responses: { 204: { description: 'Property deactivated' }, 403: errorResponse('Not the owner') },
+                responses: { 204: { description: 'Item deactivated' }, 403: errorResponse('Not the owner') },
             },
         },
-        '/properties/{id}/images': {
-            parameters: [idParam('id', 'Property id')],
-            get: { tags: ['Property Images'], summary: 'List a property\'s images', responses: { 200: { description: 'Images list' } } },
+        '/items/{id}/images': {
+            parameters: [idParam('id', 'Item id')],
+            get: { tags: ['Item Images'], summary: 'List an item\'s images', responses: { 200: { description: 'Images list' } } },
             post: {
-                tags: ['Property Images'],
+                tags: ['Item Images'],
                 summary: 'Upload one or more images (owner only)',
                 security: cookieAuth,
                 requestBody: { content: { 'multipart/form-data': { schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } } } },
                 responses: { 201: { description: 'Images uploaded' }, 403: errorResponse('Not the owner') },
             },
         },
-        '/properties/{id}/images/{imageId}/primary': {
-            parameters: [idParam('id', 'Property id'), idParam('imageId', 'Image id')],
-            patch: { tags: ['Property Images'], summary: 'Mark an image as the primary one (owner only)', security: cookieAuth, responses: { 200: { description: 'Primary image set' } } },
+        '/items/{id}/images/{imageId}/primary': {
+            parameters: [idParam('id', 'Item id'), idParam('imageId', 'Image id')],
+            patch: { tags: ['Item Images'], summary: 'Mark an image as the primary one (owner only)', security: cookieAuth, responses: { 200: { description: 'Primary image set' } } },
         },
-        '/properties/{id}/images/{imageId}': {
-            parameters: [idParam('id', 'Property id'), idParam('imageId', 'Image id')],
-            delete: { tags: ['Property Images'], summary: 'Delete an image (owner only)', security: cookieAuth, responses: { 204: { description: 'Image deleted' } } },
+        '/items/{id}/images/{imageId}': {
+            parameters: [idParam('id', 'Item id'), idParam('imageId', 'Image id')],
+            delete: { tags: ['Item Images'], summary: 'Delete an image (owner only)', security: cookieAuth, responses: { 204: { description: 'Image deleted' } } },
         },
-        '/properties/{id}/blocked-dates': {
-            parameters: [idParam('id', 'Property id')],
-            get: { tags: ['Blocked Dates'], summary: "List a property's blocked date ranges", responses: { 200: { description: 'Blocked dates list' } } },
+        '/items/{id}/blocked-dates': {
+            parameters: [idParam('id', 'Item id')],
+            get: { tags: ['Blocked Dates'], summary: "List an item's blocked date ranges", responses: { 200: { description: 'Blocked dates list' } } },
             post: {
                 tags: ['Blocked Dates'],
                 summary: 'Block a date range (owner only)',
@@ -366,14 +389,14 @@ export const openapiSpec = {
                 responses: { 201: { description: 'Date range blocked' }, 409: errorResponse('Overlaps an existing blocked range') },
             },
         },
-        '/properties/{id}/blocked-dates/{blockId}': {
-            parameters: [idParam('id', 'Property id'), idParam('blockId', 'Blocked date id')],
+        '/items/{id}/blocked-dates/{blockId}': {
+            parameters: [idParam('id', 'Item id'), idParam('blockId', 'Blocked date id')],
             delete: { tags: ['Blocked Dates'], summary: 'Remove a blocked date range (owner only)', security: cookieAuth, responses: { 204: { description: 'Blocked range removed' } } },
         },
         '/reservations': {
             post: {
                 tags: ['Reservations'],
-                summary: 'Request a reservation for a property',
+                summary: 'Request a reservation for an item',
                 security: cookieAuth,
                 requestBody: {
                     required: true,
@@ -381,8 +404,8 @@ export const openapiSpec = {
                         'application/json': {
                             schema: {
                                 type: 'object',
-                                required: ['propertyId', 'startDate', 'endDate'],
-                                properties: { propertyId: { type: 'string', format: 'uuid' }, startDate: { type: 'string', format: 'date' }, endDate: { type: 'string', format: 'date' } },
+                                required: ['itemId', 'startDate', 'endDate'],
+                                properties: { itemId: { type: 'string', format: 'uuid' }, startDate: { type: 'string', format: 'date' }, endDate: { type: 'string', format: 'date' } },
                             },
                         },
                     },
@@ -397,7 +420,7 @@ export const openapiSpec = {
             get: { tags: ['Reservations'], summary: 'List reservations made by the current user (as guest)', security: cookieAuth, responses: { 200: { description: 'Reservations list', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Reservation' } } } } } } },
         },
         '/reservations/owner': {
-            get: { tags: ['Reservations'], summary: 'List reservations for properties owned by the current user', security: cookieAuth, responses: { 200: { description: 'Reservations list', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Reservation' } } } } } } },
+            get: { tags: ['Reservations'], summary: 'List reservations for items owned by the current user', security: cookieAuth, responses: { 200: { description: 'Reservations list', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Reservation' } } } } } } },
         },
         '/reservations/{id}': {
             parameters: [idParam('id', 'Reservation id')],

@@ -10,13 +10,14 @@ export function buildContractText({ contractType, reservation, guest, owner }) {
     return [
         TITLES[contractType],
         '',
-        `Propiedad: ${reservation.property_title} (${reservation.property_address})`,
+        `Objeto: ${reservation.item_title}`,
+        `Lugar de recogida y devolucion: ${reservation.pickup_address}`,
         `Periodo: ${reservation.start_date} a ${reservation.end_date}`,
         `Precio por dia: ${reservation.price_per_day} EUR`,
         `Deposito: ${reservation.deposit_amount} EUR`,
         '',
-        `Arrendador: ${owner.full_name} (${owner.email})`,
-        `Arrendatario: ${guest.full_name} (${guest.email})`,
+        `Arrendador: ${owner.full_name} (${owner.email}) - Tel: ${owner.phone ?? 'no indicado'}`,
+        `Arrendatario: ${guest.full_name} (${guest.email}) - Tel: ${guest.phone ?? 'no indicado'}`,
     ].join('\n');
 }
 
@@ -39,8 +40,8 @@ export async function generateContractPdf({ text, contract, guest, owner }) {
     y -= 24;
     const signatureLines = [
         '--- Firmas (firma electronica simple verificada por codigo OTP) ---',
-        `Arrendatario: ${guest.full_name} firmado el ${contract.guest_signed_at?.toISOString()} desde IP ${contract.guest_signature_ip}`,
-        `Arrendador: ${owner.full_name} firmado el ${contract.owner_signed_at?.toISOString()} desde IP ${contract.owner_signature_ip}`,
+        `Arrendatario: ${guest.full_name} firmado el ${contract.guest_signed_at?.toISOString()}`,
+        `Arrendador: ${owner.full_name} firmado el ${contract.owner_signed_at?.toISOString()}`,
         '',
         `Hash del documento: ${contract.content_hash}`,
     ];

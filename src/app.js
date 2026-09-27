@@ -12,6 +12,8 @@ import { openapiSpec } from "./docs/openapi.js";
 
 
 const app = express();
+app.set('trust proxy', 1);
+
 
 /* El webhook de Stripe necesita el body crudo para verificar la firma, antes de express.json() */
 app.post('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);

@@ -46,10 +46,10 @@ async function loadReservationForPayment(reservationId) {
         `SELECT r.id, r.status, r.guest_id, r.price_per_day, r.deposit_amount,
                 to_char(lower(r.date_range), 'YYYY-MM-DD') AS start_date,
                 to_char(upper(r.date_range), 'YYYY-MM-DD') AS end_date,
-                p.owner_id, u.stripe_account_id AS owner_stripe_account_id
+                i.owner_id, u.stripe_account_id AS owner_stripe_account_id
          FROM reservations r
-         JOIN properties p ON p.id = r.property_id
-         JOIN users u ON u.id = p.owner_id
+         JOIN items i ON i.id = r.item_id
+         JOIN users u ON u.id = i.owner_id
          WHERE r.id = $1`,
         [reservationId]
     );
@@ -133,16 +133,16 @@ export async function getReservationPayment(req, res, next) {
 
 async function findPaymentForOwner(paymentId, userId) {
     const { rows } = await db.query(
-        `SELECT pay.*, p.owner_id
+        `SELECT pay.*, i.owner_id
          FROM payments pay
          JOIN reservations r ON r.id = pay.reservation_id
-         JOIN properties p ON p.id = r.property_id
+         JOIN items i ON i.id = r.item_id
          WHERE pay.id = $1`,
         [paymentId]
     );
     const payment = rows[0];
     if (!payment) throw createError(404, 'Payment not found');
-    if (payment.owner_id !== userId) throw createError(403, 'Only the property owner can manage this deposit');
+    if (payment.owner_id !== userId) throw createError(403, 'Only the item owner can manage this deposit');
     return payment;
 }
 

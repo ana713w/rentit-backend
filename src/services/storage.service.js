@@ -30,7 +30,7 @@ async function resolvePublicUrl(blob, bucket, path) {
     }
 }
 
-// Reutilizado por property_images y, mas adelante, por verification_photos
+// Reutilizado por item_images y, mas adelante, por verification_photos
 export function uploadImage(file, folder) {
     return uploadBuffer(file.buffer, folder, file.originalname, file.mimetype);
 }

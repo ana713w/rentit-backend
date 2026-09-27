@@ -17,8 +17,10 @@ async function loadReservationForContract(reservationId) {
     const { rows } = await db.query(
         `SELECT r.id, r.status, r.guest_id, to_char(lower(r.date_range), 'YYYY-MM-DD') AS start_date, to_char(upper(r.date_range), 'YYYY-MM-DD') AS end_date,
                 r.price_per_day, r.deposit_amount,
-                p.title AS property_title, p.address AS property_address, p.owner_id
-         FROM reservations r JOIN properties p ON p.id = r.property_id
+                i.title AS item_title, i.owner_id, o.address AS pickup_address
+         FROM reservations r
+         JOIN items i ON i.id = r.item_id
+         JOIN users o ON o.id = i.owner_id
          WHERE r.id = $1`,
         [reservationId]
     );
@@ -29,7 +31,7 @@ async function loadReservationForContract(reservationId) {
 
 async function loadParties(reservation) {
     const { rows } = await db.query(
-        'SELECT id, full_name, email FROM users WHERE id = ANY($1::uuid[])',
+        'SELECT id, full_name, email, phone FROM users WHERE id = ANY($1::uuid[])',
         [[reservation.guest_id, reservation.owner_id]]
     );
     const guest = rows.find((u) => u.id === reservation.guest_id);
@@ -39,10 +41,10 @@ async function loadParties(reservation) {
 
 async function findContractForUser(contractId, userId) {
     const { rows } = await db.query(
-        `SELECT c.*, r.guest_id, p.owner_id
+        `SELECT c.*, r.guest_id, i.owner_id
          FROM contracts c
          JOIN reservations r ON r.id = c.reservation_id
-         JOIN properties p ON p.id = r.property_id
+         JOIN items i ON i.id = r.item_id
          WHERE c.id = $1`,
         [contractId]
     );
