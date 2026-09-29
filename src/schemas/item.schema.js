@@ -14,3 +14,12 @@ export const createItemSchema = baseItemSchema.refine(
 );
 
 export const updateItemSchema = baseItemSchema.partial();
+
+export const listItemsQuerySchema = z.object({
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    lng: z.coerce.number().min(-180).max(180).optional(),
+    radiusKm: z.coerce.number().positive().max(100).optional(),
+}).refine(
+    (query) => (query.lat === undefined) === (query.lng === undefined),
+    { message: 'lat and lng must be sent together', path: ['lat'] }
+);

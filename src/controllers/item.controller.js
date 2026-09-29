@@ -26,10 +26,35 @@ export async function createItem(req, res, next) {
     }
 }
 
+const DEFAULT_RADIUS_KM = 5;
+
 export async function listItems(req, res, next) {
     try {
+        const { lat, lng, radiusKm } = req.query;
+
+        if (lat === undefined || lng === undefined) {
+            const { rows } = await db.query(
+                'SELECT * FROM items WHERE is_active = true ORDER BY created_at DESC'
+            );
+            return res.json(rows);
+        }
+
+        // busqueda por proximidad: distancia (Haversine) entre el punto pedido y la ubicacion del dueño,
+        // que es donde se recoge el objeto; las coordenadas del dueño no se devuelven, solo la distancia
         const { rows } = await db.query(
-            'SELECT * FROM items WHERE is_active = true ORDER BY created_at DESC'
+            `SELECT * FROM (
+                SELECT i.*, ROUND((6371 * 2 * ASIN(LEAST(1, SQRT(
+                    POWER(SIN(RADIANS(u.latitude - $1::float8) / 2), 2) +
+                    COS(RADIANS($1::float8)) * COS(RADIANS(u.latitude)) *
+                    POWER(SIN(RADIANS(u.longitude - $2::float8) / 2), 2)
+                ))))::numeric, 2) AS distance_km
+                FROM items i
+                JOIN users u ON u.id = i.owner_id
+                WHERE i.is_active = true AND u.latitude IS NOT NULL AND u.longitude IS NOT NULL
+             ) nearby
+             WHERE distance_km <= $3
+             ORDER BY distance_km ASC, created_at DESC`,
+            [Number(lat), Number(lng), Number(radiusKm ?? DEFAULT_RADIUS_KM)]
         );
         res.json(rows);
     } catch (error) {

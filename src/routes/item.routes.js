@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validate } from '../middlewares/validate.middlewares.js';
 import { isAuthenticated } from '../middlewares/auth.middleware.js';
-import { createItemSchema, updateItemSchema } from '../schemas/item.schema.js';
+import { createItemSchema, updateItemSchema, listItemsQuerySchema } from '../schemas/item.schema.js';
 import {
     createItem,
     listItems,
@@ -14,7 +14,7 @@ import blockedDateRoutes from './blockedDate.routes.js';
 
 const router = Router();
 
-router.get('/', listItems);
+router.get('/', validate(listItemsQuerySchema, 'query'), listItems);
 router.get('/:id', getItem);
 router.post('/', isAuthenticated, validate(createItemSchema), createItem);
 router.patch('/:id', isAuthenticated, validate(updateItemSchema), updateItem);

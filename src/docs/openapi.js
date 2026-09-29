@@ -281,8 +281,13 @@ export const openapiSpec = {
         '/items': {
             get: {
                 tags: ['Items'],
-                summary: 'List active items',
-                responses: { 200: { description: 'List of items', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Item' } } } } } },
+                summary: 'List active items. With lat and lng, only items whose owner is within radiusKm, ordered by distance (distance_km)',
+                parameters: [
+                    { name: 'lat', in: 'query', schema: { type: 'number', minimum: -90, maximum: 90 }, description: 'Latitude of the search point (send together with lng)' },
+                    { name: 'lng', in: 'query', schema: { type: 'number', minimum: -180, maximum: 180 }, description: 'Longitude of the search point (send together with lat)' },
+                    { name: 'radiusKm', in: 'query', schema: { type: 'number', maximum: 100, default: 5 }, description: 'Search radius in kilometres' },
+                ],
+                responses: { 400: { description: 'Invalid coordinates or radius', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationError' } } } }, 200: { description: 'List of items', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Item' } } } } } },
             },
             post: {
                 tags: ['Items'],
