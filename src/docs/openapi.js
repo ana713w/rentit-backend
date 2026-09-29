@@ -401,7 +401,7 @@ export const openapiSpec = {
         '/reservations': {
             post: {
                 tags: ['Reservations'],
-                summary: 'Request a reservation for an item',
+                summary: 'Request a reservation for an item. startDate cannot be in the past and a rental lasts at most MAX_RENTAL_DAYS days (6 by default), because Stripe only holds the deposit for about 7 days',
                 security: cookieAuth,
                 requestBody: {
                     required: true,
@@ -417,6 +417,7 @@ export const openapiSpec = {
                 },
                 responses: {
                     201: { description: 'Reservation created (pending)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Reservation' } } } },
+                    400: { description: 'Validation error: past start date or rental longer than MAX_RENTAL_DAYS', content: { 'application/json': { schema: { $ref: '#/components/schemas/ValidationError' } } } },
                     409: errorResponse('Dates not available'),
                 },
             },
@@ -429,7 +430,7 @@ export const openapiSpec = {
         },
         '/reservations/{id}': {
             parameters: [idParam('id', 'Reservation id')],
-            get: { tags: ['Reservations'], summary: 'Get a reservation (guest or owner only)', security: cookieAuth, responses: { 200: { description: 'Reservation', content: { 'application/json': { schema: { $ref: '#/components/schemas/Reservation' } } } }, 403: errorResponse('Not part of this reservation') } },
+            get: { tags: ['Reservations'], summary: 'Get a reservation (guest or owner only). When confirmed or completed it includes counterpart: the other party contact (fullName, email, phone, role) and, for the guest, the owner pickupAddress', security: cookieAuth, responses: { 200: { description: 'Reservation', content: { 'application/json': { schema: { $ref: '#/components/schemas/Reservation' } } } }, 403: errorResponse('Not part of this reservation') } },
         },
         '/reservations/{id}/accept': {
             parameters: [idParam('id', 'Reservation id')],

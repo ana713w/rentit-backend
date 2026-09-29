@@ -50,6 +50,7 @@ cp .env.example .env
 | `STRIPE_SECRET_KEY` | `sk_test_...` (Stripe → Desarrolladores → Claves de API) |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...` que da `stripe listen` (paso 6) |
 | `PLATFORM_FEE_PERCENT` | Comisión de la plataforma en % (por defecto `10`) |
+| `MAX_RENTAL_DAYS` | Días máximos de un alquiler (por defecto `6`): Stripe solo retiene la fianza unos 7 días |
 | `SESSION_SECRET` | Cualquier cadena aleatoria larga |
 | `SESSION_SECURE` | `false` en local (`true` solo con HTTPS) |
 | `SESSION_MAX_DAYS` | Días de sesión sin actividad antes de caducar |
