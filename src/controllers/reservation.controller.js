@@ -94,13 +94,37 @@ async function findReservationWithOwner(id) {
     return rows[0];
 }
 
+// Los datos de contacto solo se comparten cuando la reserva esta aceptada, para coordinar check-in y check-out
+const CONTACT_STATUSES = ['confirmed', 'completed'];
+
+async function loadCounterpart(reservation, userId) {
+    const isGuest = reservation.guest_id === userId;
+    const { rows } = await db.query(
+        'SELECT full_name, email, phone, address FROM users WHERE id = $1',
+        [isGuest ? reservation.owner_id : reservation.guest_id]
+    );
+    const other = rows[0];
+    if (!other) return null;
+    return {
+        role: isGuest ? 'owner' : 'guest',
+        fullName: other.full_name,
+        email: other.email,
+        phone: other.phone,
+        // la direccion del propietario es el punto de recogida y devolucion
+        pickupAddress: isGuest ? other.address : null,
+    };
+}
+
 export async function getReservation(req, res, next) {
     try {
         const reservation = await findReservationWithOwner(req.params.id);
         if (reservation.guest_id !== req.user.id && reservation.owner_id !== req.user.id) {
             return next(createError(403, 'You cannot view this reservation'));
         }
-        res.json(reservation);
+        const counterpart = CONTACT_STATUSES.includes(reservation.status)
+            ? await loadCounterpart(reservation, req.user.id)
+            : null;
+        res.json({ ...reservation, counterpart });
     } catch (error) {
         next(error);
     }
