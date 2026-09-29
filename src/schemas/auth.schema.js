@@ -3,8 +3,9 @@ import { z } from 'zod';
 // Direccion del usuario: es donde se recogen y devuelven sus objetos
 const addressFields = {
     address: z.string().min(5, 'Address must be at least 5 characters long').max(255).optional(),
-    latitude: z.number().min(-90).max(90).optional(),
-    longitude: z.number().min(-180).max(180).optional(),
+    // null borra la ubicacion guardada (direccion escrita a mano, sin coordenadas)
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
 };
 
 export const registerSchema = z.object({
