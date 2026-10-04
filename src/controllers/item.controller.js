@@ -3,7 +3,7 @@ import { db } from '../db/index.js';
 
 export async function createItem(req, res, next) {
     try {
-        // los objetos se recogen en la direccion del dueño, sin ella no hay donde ir a buscarlos
+        // sin direccion no hay punto de recogida
         if (!req.user.address) {
             return next(createError(400, 'Add your address to your profile before publishing items'));
         }
@@ -19,7 +19,7 @@ export async function createItem(req, res, next) {
 
         res.status(201).json(rows[0]);
     } catch (error) {
-        if (error.code === '23514') { // check_violation: deposito fuera del rango 3-365x el precio/dia
+        if (error.code === '23514') { // deposito fuera de rango
             return next(createError(400, 'Deposit must be between 3 and 365 times the price per day'));
         }
         next(error);
@@ -39,8 +39,8 @@ export async function listItems(req, res, next) {
             return res.json(rows);
         }
 
-        // busqueda por proximidad: distancia (Haversine) entre el punto pedido y la ubicacion del dueño,
-        // que es donde se recoge el objeto; las coordenadas del dueño no se devuelven, solo la distancia
+        // busqueda por cercania (Haversine) a la ubicacion del dueño
+        // solo se devuelve la distancia
         const { rows } = await db.query(
             `SELECT * FROM (
                 SELECT i.*, ROUND((6371 * 2 * ASIN(LEAST(1, SQRT(

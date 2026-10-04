@@ -178,7 +178,7 @@ export const openapiSpec = {
                         'application/json': {
                             schema: {
                                 type: 'object',
-                                required: ['email', 'password', 'fullName'],
+                                required: ['email', 'password', 'fullName', 'phone', 'address'],
                                 properties: {
                                     email: { type: 'string', format: 'email' },
                                     password: { type: 'string', minLength: 8 },
@@ -454,7 +454,7 @@ export const openapiSpec = {
             parameters: [idParam('id', 'Reservation id')],
             post: {
                 tags: ['Contracts'],
-                summary: 'Create a contract for the reservation (rental or return)',
+                summary: 'Create a contract for the reservation. The rental contract is available from one day before pickup; the return act needs the rental contract signed and the check-in done',
                 security: cookieAuth,
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['contractType'], properties: { contractType: { type: 'string', enum: ['rental', 'return'] } } } } } },
                 responses: { 201: { description: 'Contract created', content: { 'application/json': { schema: { $ref: '#/components/schemas/Contract' } } } }, 400: errorResponse('The rental contract must be fully signed before creating the return one') },
@@ -484,7 +484,7 @@ export const openapiSpec = {
             parameters: [idParam('id', 'Reservation id')],
             post: {
                 tags: ['Verifications'],
-                summary: 'Create a check-in or check-out verification for the reservation',
+                summary: 'Create a check-in or check-out verification. Check-in needs the rent paid, the deposit held and the rental contract signed; check-out needs the return act signed',
                 description: 'Creating a check-out verification automatically marks the reservation as completed.',
                 security: cookieAuth,
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['verificationType'], properties: { verificationType: { type: 'string', enum: ['check_in', 'check_out'] }, notes: { type: 'string' } } } } } },
@@ -522,9 +522,9 @@ export const openapiSpec = {
             parameters: [idParam('id', 'Reservation id')],
             post: {
                 tags: ['Payments'],
-                summary: 'Create the rent + deposit payment intents for a confirmed reservation (guest only)',
+                summary: 'Create (or reuse) a Stripe Checkout session for the rent (guest only) and return its checkoutUrl. The card is saved and, when the Checkout completes, the deposit is held on it with manual capture. Available from one day before pickup so the deposit hold covers the whole rental',
                 security: cookieAuth,
-                responses: { 201: { description: 'Payment created with Stripe client secrets', content: { 'application/json': { schema: { $ref: '#/components/schemas/Payment' } } } }, 400: errorResponse('Reservation not confirmed or owner not onboarded') },
+                responses: { 201: { description: 'Payment with checkoutUrl (200 when an open session is reused)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Payment' } } } }, 400: errorResponse('Reservation not confirmed or owner not onboarded'), 409: errorResponse('Payment already exists or it is earlier than one day before pickup') },
             },
             get: { tags: ['Payments'], summary: 'Get the payment for a reservation', security: cookieAuth, responses: { 200: { description: 'Payment', content: { 'application/json': { schema: { $ref: '#/components/schemas/Payment' } } } }, 404: errorResponse('No payment found') } },
         },
@@ -551,7 +551,7 @@ export const openapiSpec = {
             parameters: [idParam('id', 'Reservation id')],
             post: {
                 tags: ['Disputes'],
-                summary: 'Open a dispute for a reservation (guest or owner)',
+                summary: 'Open a dispute for a reservation (guest or owner), only after the check-in',
                 security: cookieAuth,
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['reason'], properties: { reason: { type: 'string' }, requestedCaptureAmount: { type: 'number' } } } } } },
                 responses: { 201: { description: 'Dispute opened', content: { 'application/json': { schema: { $ref: '#/components/schemas/Dispute' } } } }, 409: errorResponse('There is already an open dispute for this reservation') },

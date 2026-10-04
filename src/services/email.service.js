@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 
 let transporter;
 
-// Lazy, igual que Firebase: no queremos que el servidor no arranque solo porque el SMTP no este configurado todavia
+// Lazy: el servidor arranca aunque falte el SMTP
 function getTransporter() {
     if (!transporter) {
         transporter = nodemailer.createTransport({

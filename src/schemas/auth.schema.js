@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
-// Direccion del usuario: es donde se recogen y devuelven sus objetos
+// Direccion de recogida y devolucion
+const address = z.string().trim().min(5, 'Address must be at least 5 characters long').max(255);
 const addressFields = {
-    address: z.string().min(5, 'Address must be at least 5 characters long').max(255).optional(),
-    // null borra la ubicacion guardada (direccion escrita a mano, sin coordenadas)
+    address: address.optional(),
+    // null borra la ubicacion guardada
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
 };
@@ -22,11 +23,15 @@ export const registerSchema = z.object({
         .string()
         .min(1, 'Full name is required')
         .max(150, 'Full name must be at most 150 characters'),
+    // obligatorios: el telefono y la direccion se comparten al aceptar una reserva
     phone: z
         .string()
+        .trim()
+        .min(1, 'Phone is required')
         .max(30, 'Phone must be at most 30 characters')
-        .optional(),
+        .regex(/^\+?[0-9\s()-]{6,}$/, 'Invalid phone number'),
     ...addressFields,
+    address,
 });
 
 export const updateMeSchema = z.object({

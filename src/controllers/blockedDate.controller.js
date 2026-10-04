@@ -40,7 +40,7 @@ export async function createBlockedDate(req, res, next) {
 
         res.status(201).json(rows[0]);
     } catch (error) {
-        if (error.code === '23P01') { // exclusion_violation del EXCLUDE USING gist
+        if (error.code === '23P01') { // fechas solapadas
             return next(createError(409, 'These dates overlap with an existing block'));
         }
         next(error);

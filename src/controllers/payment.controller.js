@@ -4,13 +4,15 @@ import {
     createConnectAccount,
     createOnboardingLink,
     getAccountStatus,
-    createRentPaymentIntent,
-    createDepositPaymentIntent,
+    createRentCheckoutSession,
+    retrieveCheckoutSession,
+    createDepositHold,
     captureDeposit,
     cancelDeposit,
     refundRentPayment,
     constructWebhookEvent,
 } from '../services/stripe.service.js';
+import { ensurePreparationOpen } from '../services/reservation-flow.service.js';
 
 const PLATFORM_FEE_PERCENT = Number(process.env.PLATFORM_FEE_PERCENT || 10);
 
@@ -43,7 +45,7 @@ export async function getOnboardingStatus(req, res, next) {
 
 async function loadReservationForPayment(reservationId) {
     const { rows } = await db.query(
-        `SELECT r.id, r.status, r.guest_id, r.price_per_day, r.deposit_amount,
+        `SELECT r.id, r.status, r.guest_id, r.price_per_day, r.deposit_amount, i.title AS item_title,
                 to_char(lower(r.date_range), 'YYYY-MM-DD') AS start_date,
                 to_char(upper(r.date_range), 'YYYY-MM-DD') AS end_date,
                 i.owner_id, u.stripe_account_id AS owner_stripe_account_id
@@ -77,43 +79,114 @@ export async function createReservationPayment(req, res, next) {
         if (!reservation.owner_stripe_account_id) {
             return next(createError(400, 'The owner has not completed payment onboarding yet'));
         }
+        ensurePreparationOpen(reservation.start_date);
 
-        const { rows: existing } = await db.query('SELECT id FROM payments WHERE reservation_id = $1', [reservation.id]);
-        if (existing.length > 0) {
-            return next(createError(409, 'A payment already exists for this reservation'));
+        const { rows: existing } = await db.query('SELECT * FROM payments WHERE reservation_id = $1', [reservation.id]);
+        let payment = existing[0];
+
+        if (payment?.checkout_session_id && payment.rent_status !== 'succeeded') {
+            const session = await retrieveCheckoutSession(payment.checkout_session_id);
+            // sigue abierta: se vuelve a la misma pagina de pago
+            if (session.status === 'open') {
+                return res.json({ ...payment, checkoutUrl: session.url });
+            }
+            if (session.status === 'complete') payment = await completeCheckout(payment);
+        }
+        if (payment?.rent_status === 'succeeded') {
+            return next(createError(409, 'This reservation is already paid'));
         }
 
-        const rentAmount = Number(reservation.price_per_day) * countNights(reservation.start_date, reservation.end_date);
+        const nights = countNights(reservation.start_date, reservation.end_date);
+        const rentAmount = Number(reservation.price_per_day) * nights;
         const platformFeeAmount = Math.round(rentAmount * PLATFORM_FEE_PERCENT) / 100;
 
-        const rentIntent = await createRentPaymentIntent({
-            amount: rentAmount,
-            ownerStripeAccountId: reservation.owner_stripe_account_id,
+        const session = await createRentCheckoutSession({
+            reservationId: reservation.id,
+            itemTitle: reservation.item_title,
+            nights,
+            rentAmount,
+            depositAmount: reservation.deposit_amount,
             feePercent: PLATFORM_FEE_PERCENT,
-            reservationId: reservation.id,
-        });
-        const depositIntent = await createDepositPaymentIntent({
-            amount: reservation.deposit_amount,
             ownerStripeAccountId: reservation.owner_stripe_account_id,
-            reservationId: reservation.id,
+            guestEmail: req.user.email,
         });
 
-        const { rows } = await db.query(
-            `INSERT INTO payments (reservation_id, rent_amount, deposit_amount, platform_fee_amount,
-                                    rent_payment_intent_id, deposit_payment_intent_id)
-             VALUES ($1,$2,$3,$4,$5,$6)
-             RETURNING *`,
-            [reservation.id, rentAmount, reservation.deposit_amount, platformFeeAmount, rentIntent.id, depositIntent.id]
-        );
+        // sesion caducada o pago antiguo sin completar: se reinicia la misma fila
+        const { rows } = payment
+            ? await db.query(
+                `UPDATE payments
+                 SET checkout_session_id = $1, rent_amount = $2, deposit_amount = $3, platform_fee_amount = $4,
+                     rent_payment_intent_id = NULL, deposit_payment_intent_id = NULL,
+                     rent_status = 'pending', deposit_status = 'pending', updated_at = NOW()
+                 WHERE id = $5 RETURNING *`,
+                [session.id, rentAmount, reservation.deposit_amount, platformFeeAmount, payment.id]
+            )
+            : await db.query(
+                `INSERT INTO payments (reservation_id, rent_amount, deposit_amount, platform_fee_amount, checkout_session_id)
+                 VALUES ($1,$2,$3,$4,$5)
+                 RETURNING *`,
+                [reservation.id, rentAmount, reservation.deposit_amount, platformFeeAmount, session.id]
+            );
 
-        res.status(201).json({
-            ...rows[0],
-            rentClientSecret: rentIntent.client_secret,
-            depositClientSecret: depositIntent.client_secret,
-        });
+        res.status(201).json({ ...rows[0], checkoutUrl: session.url });
     } catch (error) {
         next(error);
     }
+}
+
+async function findPaymentById(paymentId) {
+    const { rows } = await db.query('SELECT * FROM payments WHERE id = $1', [paymentId]);
+    return rows[0];
+}
+
+// Al volver del Checkout (GET) o con el webhook checkout.session.completed:
+// marca el alquiler como cobrado y retiene la fianza con la misma tarjeta
+async function completeCheckout(payment) {
+    const session = await retrieveCheckoutSession(payment.checkout_session_id);
+    if (session.payment_status !== 'paid') return payment;
+
+    const rentIntent = session.payment_intent;
+    await db.query(
+        `UPDATE payments SET rent_status = 'succeeded', rent_payment_intent_id = $1, updated_at = NOW()
+         WHERE id = $2 AND rent_status IN ('pending', 'failed')`,
+        [rentIntent.id, payment.id]
+    );
+
+    const current = await findPaymentById(payment.id);
+    if (current.deposit_status !== 'pending') return current;
+
+    const { rows: ownerRows } = await db.query(
+        `SELECT u.stripe_account_id
+         FROM reservations r JOIN items i ON i.id = r.item_id JOIN users u ON u.id = i.owner_id
+         WHERE r.id = $1`,
+        [payment.reservation_id]
+    );
+
+    let depositIntentId = null;
+    let depositStatus = 'failed';
+    try {
+        const hold = await createDepositHold({
+            amount: current.deposit_amount,
+            ownerStripeAccountId: ownerRows[0].stripe_account_id,
+            reservationId: payment.reservation_id,
+            customerId: session.customer,
+            paymentMethodId: rentIntent.payment_method,
+            idempotencyKey: `deposit-hold-${payment.id}`,
+        });
+        depositIntentId = hold.id;
+        if (hold.status === 'requires_capture') depositStatus = 'authorized';
+    } catch (error) {
+        // tarjeta rechazada para la fianza: queda como failed
+        if (error.type !== 'StripeCardError') throw error;
+        depositIntentId = error.payment_intent?.id ?? null;
+    }
+
+    await db.query(
+        `UPDATE payments SET deposit_status = $1, deposit_payment_intent_id = $2, updated_at = NOW()
+         WHERE id = $3 AND deposit_status = 'pending'`,
+        [depositStatus, depositIntentId, payment.id]
+    );
+    return findPaymentById(payment.id);
 }
 
 export async function getReservationPayment(req, res, next) {
@@ -124,8 +197,14 @@ export async function getReservationPayment(req, res, next) {
         }
 
         const { rows } = await db.query('SELECT * FROM payments WHERE reservation_id = $1', [reservation.id]);
-        if (!rows[0]) return next(createError(404, 'No payment found for this reservation'));
-        res.json(rows[0]);
+        let payment = rows[0];
+        if (!payment) return next(createError(404, 'No payment found for this reservation'));
+
+        // respaldo del webhook: al volver de Stripe se completa aqui
+        if (payment.checkout_session_id && (payment.rent_status === 'pending' || payment.deposit_status === 'pending')) {
+            payment = await completeCheckout(payment);
+        }
+        res.json(payment);
     } catch (error) {
         next(error);
     }
@@ -146,8 +225,7 @@ async function findPaymentForOwner(paymentId, userId) {
     return payment;
 }
 
-// Llamado desde reservation.controller.js al cancelar una reserva 'confirmed' con pago:
-// reembolsa el alquiler ya cobrado y cancela el deposito si seguia solo autorizado
+// Reembolsa el alquiler y cancela el deposito al cancelar una reserva confirmada
 export async function cancelPaymentsForReservation(reservationId) {
     const { rows } = await db.query('SELECT * FROM payments WHERE reservation_id = $1', [reservationId]);
     const payment = rows[0];
@@ -174,8 +252,7 @@ async function ensureCheckOutHappened(reservationId) {
     }
 }
 
-// Reutilizado por disputes: al resolver una disputa (Modulo 10), el admin puede decidir
-// capturar (total o parcial) o liberar el deposito, con la misma logica que estos endpoints
+// Captura o libera el deposito, tambien se usa al resolver disputas
 export async function applyDepositResolution(payment, { action, amountToCapture }) {
     if (payment.deposit_status !== 'authorized') {
         throw createError(409, 'The deposit is not in a resolvable state');
@@ -241,7 +318,10 @@ export async function handleStripeWebhook(req, res, next) {
         const intent = event.data.object;
         const { type } = intent.metadata || {};
 
-        if (event.type === 'payment_intent.succeeded' && type === 'rent') {
+        if (event.type === 'checkout.session.completed') {
+            const { rows } = await db.query('SELECT * FROM payments WHERE checkout_session_id = $1', [intent.id]);
+            if (rows[0]) await completeCheckout(rows[0]);
+        } else if (event.type === 'payment_intent.succeeded' && type === 'rent') {
             await db.query(
                 `UPDATE payments SET rent_status = 'succeeded', updated_at = NOW() WHERE rent_payment_intent_id = $1`,
                 [intent.id]
@@ -259,6 +339,13 @@ export async function handleStripeWebhook(req, res, next) {
         } else if (event.type === 'payment_intent.payment_failed' && type === 'deposit') {
             await db.query(
                 `UPDATE payments SET deposit_status = 'failed', updated_at = NOW() WHERE deposit_payment_intent_id = $1`,
+                [intent.id]
+            );
+        } else if (event.type === 'payment_intent.canceled' && type === 'deposit') {
+            // retencion caducada en Stripe; si la liberamos nosotros ya esta en released/canceled
+            await db.query(
+                `UPDATE payments SET deposit_status = 'canceled', updated_at = NOW()
+                 WHERE deposit_payment_intent_id = $1 AND deposit_status IN ('pending', 'authorized')`,
                 [intent.id]
             );
         }

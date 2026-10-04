@@ -1,6 +1,6 @@
 --PARA ACTUALIZAR -> psql -U postgres -f db/schema.sql
 
--- necesaria para los EXCLUDE USING gist de mas abajo (comparar item_id, un uuid, junto a un rango de fechas)
+-- necesaria para EXCLUDE USING gist (uuid + rango de fechas)
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     address VARCHAR(255),
     latitude NUMERIC(9,6),
     longitude NUMERIC(9,6),
-    stripe_account_id VARCHAR(255), -- id de la cuenta Stripe Connect Express del usuario cuando actua como owner
+    stripe_account_id VARCHAR(255), -- cuenta Stripe Connect del dueño
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS item_blocked_dates (
     date_range DATERANGE NOT NULL,
     reason VARCHAR(255),                        
     created_at TIMESTAMP DEFAULT NOW(),
-    -- evita que el propio dueño registre dos bloqueos que se solapen en el mismo objeto
+    -- evita bloqueos solapados en el mismo objeto
     EXCLUDE USING gist (item_id WITH =, date_range WITH &&)
 );
 
@@ -78,23 +78,22 @@ CREATE TABLE IF NOT EXISTS reservations (
     CONSTRAINT deposit_between_3_and_365_days CHECK (
         deposit_amount >= price_per_day * 3 AND deposit_amount <= price_per_day * 365
     ),
-    -- solo las reservas confirmadas ocupan de verdad el calendario; dos pending pueden coexistir,
-    -- gana la primera que el dueño confirme (ver reservation.controller.js)
+    -- solo las confirmadas bloquean el calendario
     EXCLUDE USING gist (item_id WITH =, date_range WITH &&) WHERE (status = 'confirmed')
 );
 
--- Cada reserva puede generar hasta 2 contratos independientes: 'rental' (al inicio) y 'return' (al final),
--- cada uno con su propio par de firmas (huesped/dueño), firma simple + OTP por email
+-- hasta 2 contratos por reserva: 'rental' y 'return'
+-- firma simple + OTP por email
 CREATE TABLE IF NOT EXISTS contracts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
     contract_type VARCHAR(20) NOT NULL,
-    content_hash TEXT NOT NULL,          -- SHA-256 del texto del contrato, fijo desde la creacion, igual para ambos firmantes
-    document_url TEXT,                   -- url del PDF final, solo se rellena cuando ambas partes firmaron
+    content_hash TEXT NOT NULL,          -- SHA-256 del texto del contrato
+    document_url TEXT,                   -- PDF final, tras las dos firmas
     document_storage_path TEXT,
     guest_signed_at TIMESTAMP,
     guest_signature_ip VARCHAR(45),      
-    guest_otp_hash TEXT,                 -- hash bcrypt del OTP pendiente, se limpia al firmar
+    guest_otp_hash TEXT,                 -- hash del OTP, se limpia al firmar
     guest_otp_expires_at TIMESTAMP,
     owner_signed_at TIMESTAMP,
     owner_signature_ip VARCHAR(45),
@@ -106,8 +105,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     CONSTRAINT one_contract_per_type_per_reservation UNIQUE (reservation_id, contract_type)
 );
 
--- Una verificacion compartida por reserva y etapa (check_in / check_out); huesped y dueño
--- suben fotos a la MISMA verificacion, cada foto queda etiquetada con quien la subio
+-- una verificacion por reserva y etapa (check_in / check_out)
+-- cada foto guarda quien la subio
 CREATE TABLE IF NOT EXISTS verifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
@@ -128,15 +127,15 @@ CREATE TABLE IF NOT EXISTS verification_photos (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Un pago por reserva: alquiler con captura automatica (se transfiere al dueño via Stripe Connect,
--- menos la comision de la plataforma) y deposito con captura manual (se autoriza/retiene al confirmar
--- la reserva, y se captura total, parcial o se libera despues del check-out / de una disputa)
+-- un pago por reserva: alquiler con captura automatica
+-- y deposito retenido hasta el check-out o una disputa
 CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id UUID NOT NULL UNIQUE REFERENCES reservations(id) ON DELETE CASCADE,
     rent_amount NUMERIC(10,2) NOT NULL,
     deposit_amount NUMERIC(10,2) NOT NULL,
     platform_fee_amount NUMERIC(10,2) NOT NULL,
+    checkout_session_id VARCHAR(255),   -- pagina de pago de Stripe; el intent del alquiler se conoce al completarla
     rent_payment_intent_id VARCHAR(255),
     rent_status VARCHAR(20) NOT NULL DEFAULT 'pending',
     deposit_payment_intent_id VARCHAR(255),
@@ -150,8 +149,11 @@ CREATE TABLE IF NOT EXISTS payments (
     )
 );
 
--- Una disputa la puede abrir cualquiera de las dos partes la resuelve un admin, y la resolucion puede disparar la captura/liberacion
--- del deposito reutilizando la misma logica del Modulo 9 (ver applyDepositResolution en payment.controller.js)
+-- bases de datos creadas antes del pago con Stripe Checkout
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS checkout_session_id VARCHAR(255);
+
+-- la abre cualquiera de las partes y la resuelve un admin
+-- la resolucion puede capturar o liberar el deposito
 CREATE TABLE IF NOT EXISTS disputes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reservation_id UUID NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,

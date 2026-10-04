@@ -18,8 +18,7 @@ async function uploadBuffer(buffer, folder, filename, contentType) {
     return { url, path };
 }
 
-// Los buckets creados con Uniform Bucket-Level Access (default en proyectos GCP recientes) no admiten
-// ACLs por objeto, asi que makePublic() falla; en ese caso usamos una URL firmada de larga duracion
+// Con Uniform Bucket-Level Access makePublic() falla: se usa URL firmada
 async function resolvePublicUrl(blob, bucket, path) {
     try {
         await blob.makePublic();
@@ -30,12 +29,12 @@ async function resolvePublicUrl(blob, bucket, path) {
     }
 }
 
-// Reutilizado por item_images y, mas adelante, por verification_photos
+// Usado por item_images y verification_photos
 export function uploadImage(file, folder) {
     return uploadBuffer(file.buffer, folder, file.originalname, file.mimetype);
 }
 
-// Reutilizado por contracts (PDFs generados en el servidor)
+// Usado por contracts (PDFs)
 export function uploadDocument(buffer, folder, filename) {
     return uploadBuffer(buffer, folder, filename, 'application/pdf');
 }

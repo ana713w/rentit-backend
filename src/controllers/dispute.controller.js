@@ -1,6 +1,7 @@
 import createError from 'http-errors';
 import { db } from '../db/index.js';
 import { applyDepositResolution } from './payment.controller.js';
+import { hasVerification } from '../services/reservation-flow.service.js';
 
 async function loadReservationForDispute(reservationId) {
     const { rows } = await db.query(
@@ -22,6 +23,9 @@ export async function createDispute(req, res, next) {
         if (reservation.guest_id !== req.user.id && reservation.owner_id !== req.user.id) {
             return next(createError(403, 'You are not part of this reservation'));
         }
+        if (!(await hasVerification(reservation.id, 'check_in'))) {
+            return next(createError(409, 'A dispute can only be opened after the check-in'));
+        }
 
         const { rows } = await db.query(
             `INSERT INTO disputes (reservation_id, raised_by, reason, requested_capture_amount)
@@ -32,7 +36,7 @@ export async function createDispute(req, res, next) {
 
         res.status(201).json(rows[0]);
     } catch (error) {
-        if (error.code === '23505') { // unique_violation: ya hay una disputa abierta para esta reserva
+        if (error.code === '23505') { // ya hay una disputa abierta
             return next(createError(409, 'There is already an open dispute for this reservation'));
         }
         next(error);

@@ -2,8 +2,7 @@ import { getStripeClient } from '../config/stripe.config.js';
 
 const toCents = (amount) => Math.round(Number(amount) * 100);
 
-// Accounts v2: los cobros son destination charges sin on_behalf_of, asi que el dueño solo necesita
-// la configuracion "recipient" (recibir transferencias); la plataforma es el merchant of record
+// Destination charges: el dueño solo necesita la config "recipient"
 export async function createConnectAccount(email) {
     const stripe = getStripeClient();
     const account = await stripe.v2.core.accounts.create({
@@ -41,7 +40,7 @@ export async function createOnboardingLink(accountId) {
 
 const OUTSTANDING = ['currently_due', 'past_due'];
 
-// Se mantienen los nombres de campo de v1 para no romper el frontend
+// Mismos campos que v1 para el frontend
 export async function getAccountStatus(accountId) {
     const stripe = getStripeClient();
     const account = await stripe.v2.core.accounts.retrieve(accountId, {
@@ -58,32 +57,81 @@ export async function getAccountStatus(accountId) {
     };
 }
 
-// Se cobra al completo y se transfiere al dueño de inmediato, descontando la comision de la plataforma
-export async function createRentPaymentIntent({ amount, ownerStripeAccountId, feePercent, reservationId }) {
+// Pagina de pago de Stripe (Checkout) para el alquiler
+// Destination charge: va al dueño menos la comision
+// setup_future_usage guarda la tarjeta para retener despues la fianza
+export async function createRentCheckoutSession({
+    reservationId,
+    itemTitle,
+    nights,
+    rentAmount,
+    depositAmount,
+    feePercent,
+    ownerStripeAccountId,
+    guestEmail,
+}) {
     const stripe = getStripeClient();
-    const amountInCents = toCents(amount);
-    const applicationFeeAmount = Math.round((amountInCents * feePercent) / 100);
+    const amountInCents = toCents(rentAmount);
+    const reservationUrl = `${process.env.CLIENT_URL}/reservations/${reservationId}`;
 
-    return stripe.paymentIntents.create({
-        amount: amountInCents,
-        currency: 'eur',
-        capture_method: 'automatic',
-        application_fee_amount: applicationFeeAmount,
-        transfer_data: { destination: ownerStripeAccountId },
-        metadata: { reservationId, type: 'rent' },
+    return stripe.checkout.sessions.create({
+        mode: 'payment',
+        locale: 'es',
+        customer_creation: 'always',
+        customer_email: guestEmail,
+        line_items: [
+            {
+                quantity: 1,
+                price_data: {
+                    currency: 'eur',
+                    unit_amount: amountInCents,
+                    product_data: {
+                        name: `Alquiler: ${itemTitle}`,
+                        description: `${nights} ${nights === 1 ? 'día' : 'días'} de alquiler en RentIt`,
+                    },
+                },
+            },
+        ],
+        payment_intent_data: {
+            application_fee_amount: Math.round((amountInCents * feePercent) / 100),
+            transfer_data: { destination: ownerStripeAccountId },
+            setup_future_usage: 'off_session',
+            metadata: { reservationId, type: 'rent' },
+        },
+        custom_text: {
+            submit: {
+                message: `Además se retendrá una fianza de ${Number(depositAmount).toFixed(2)} € en esta tarjeta. No se cobra: se libera tras la devolución si el objeto está bien.`,
+            },
+        },
+        metadata: { reservationId },
+        success_url: `${reservationUrl}?payment=success`,
+        cancel_url: `${reservationUrl}?payment=cancelled`,
     });
 }
 
-// Se autoriza (retiene) pero NO se cobra hasta que se capture explicitamente, total o parcialmente
-export async function createDepositPaymentIntent({ amount, ownerStripeAccountId, reservationId }) {
+export async function retrieveCheckoutSession(sessionId) {
     const stripe = getStripeClient();
-    return stripe.paymentIntents.create({
-        amount: toCents(amount),
-        currency: 'eur',
-        capture_method: 'manual',
-        transfer_data: { destination: ownerStripeAccountId },
-        metadata: { reservationId, type: 'deposit' },
-    });
+    return stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+}
+
+// Fianza: solo se autoriza (captura manual) con la tarjeta guardada en el Checkout
+// idempotencyKey evita retenerla dos veces si webhook y frontend llegan a la vez
+export async function createDepositHold({ amount, ownerStripeAccountId, reservationId, customerId, paymentMethodId, idempotencyKey }) {
+    const stripe = getStripeClient();
+    return stripe.paymentIntents.create(
+        {
+            amount: toCents(amount),
+            currency: 'eur',
+            capture_method: 'manual',
+            customer: customerId,
+            payment_method: paymentMethodId,
+            off_session: true,
+            confirm: true,
+            transfer_data: { destination: ownerStripeAccountId },
+            metadata: { reservationId, type: 'deposit' },
+        },
+        { idempotencyKey }
+    );
 }
 
 export async function captureDeposit(paymentIntentId, amountToCapture) {

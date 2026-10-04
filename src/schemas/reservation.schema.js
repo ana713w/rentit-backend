@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format');
 
-// Stripe mantiene una autorizacion de tarjeta sin capturar unos 7 dias: el alquiler no puede durar mas
-// que lo que podemos retener la fianza (con un dia de margen para devolverla o capturarla tras el check-out)
+// Stripe retiene la fianza unos 7 dias, eso limita la duracion
 export const MAX_RENTAL_DAYS = Number(process.env.MAX_RENTAL_DAYS || 6);
 
 const DAY_MS = 24 * 60 * 60 * 1000;

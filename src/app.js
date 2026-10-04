@@ -15,7 +15,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 
-/* El webhook de Stripe necesita el body crudo para verificar la firma, antes de express.json() */
+/* Webhook de Stripe: necesita el body crudo */
 app.post('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 /* Middlewares */
@@ -25,10 +25,10 @@ app.use(morgan("dev"));
 app.use(loadSession);
 app.use(loadSessionUser);
 
-/* API docs */
+/* Docs */
 app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
-/* API Routes Configuration */
+/* Rutas */
 app.use("/api/v1", routes);
 app.use((req, res, next) => next(createError(404, 'Endpoint not found')));
 

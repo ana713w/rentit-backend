@@ -5,6 +5,11 @@ import { db } from '../db/index.js';
 import { uploadDocument } from '../services/storage.service.js';
 import { sendOtpEmail } from '../services/email.service.js';
 import { buildContractText, hashContent, generateContractPdf } from '../services/contract.service.js';
+import {
+    ensurePreparationOpen,
+    ensureRentalContractSigned,
+    hasVerification,
+} from '../services/reservation-flow.service.js';
 
 const OTP_EXPIRATION_MINUTES = 10;
 
@@ -85,14 +90,12 @@ export async function createContract(req, res, next) {
             return next(createError(400, 'The reservation must be confirmed before creating a contract'));
         }
 
-        if (contractType === 'return') {
-            const { rows: rentalRows } = await db.query(
-                `SELECT * FROM contracts WHERE reservation_id = $1 AND contract_type = 'rental'`,
-                [reservation.id]
-            );
-            const rental = rentalRows[0];
-            if (!rental || !rental.guest_signed_at || !rental.owner_signed_at) {
-                return next(createError(400, 'The rental contract must be fully signed before creating the return act'));
+        if (contractType === 'rental') {
+            ensurePreparationOpen(reservation.start_date);
+        } else {
+            await ensureRentalContractSigned(reservation.id);
+            if (!(await hasVerification(reservation.id, 'check_in'))) {
+                return next(createError(409, 'The check-in must be done before creating the return act'));
             }
         }
 
@@ -177,7 +180,7 @@ export async function signContract(req, res, next) {
         const { role } = contract;
 
         if (contract[`${role}_signed_at`]) {
-            // ambas firmas quedaron registradas pero un intento anterior de generar el PDF fallo (ej. Firebase caido)
+            // firmas completas pero fallo el PDF antes
             if (contract.guest_signed_at && contract.owner_signed_at && !contract.document_url) {
                 return res.json(sanitizeContract(await finalizeContract(contract)));
             }

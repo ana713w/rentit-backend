@@ -1,6 +1,7 @@
 import createError from 'http-errors';
 import { db } from '../db/index.js';
 import { uploadImage, deleteFile } from '../services/storage.service.js';
+import { ensureReadyForCheckIn, ensureReadyForCheckOut } from '../services/reservation-flow.service.js';
 
 async function loadReservationForVerification(reservationId) {
     const { rows } = await db.query(
@@ -43,14 +44,10 @@ export async function createVerification(req, res, next) {
             return next(createError(400, 'The reservation must be confirmed before creating a verification'));
         }
 
-        if (verificationType === 'check_out') {
-            const { rows: checkInRows } = await db.query(
-                `SELECT id FROM verifications WHERE reservation_id = $1 AND verification_type = 'check_in'`,
-                [reservation.id]
-            );
-            if (checkInRows.length === 0) {
-                return next(createError(400, 'The check-in verification must exist before creating the check-out one'));
-            }
+        if (verificationType === 'check_in') {
+            await ensureReadyForCheckIn(reservation.id);
+        } else {
+            await ensureReadyForCheckOut(reservation.id);
         }
 
         const { rows } = await db.query(

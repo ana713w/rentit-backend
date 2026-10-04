@@ -47,7 +47,7 @@ export async function createReservation(req, res, next) {
 
         res.status(201).json(rows[0]);
     } catch (error) {
-        if (error.code === '23P01') { // exclusion_violation: alguien confirmo esas fechas justo antes
+        if (error.code === '23P01') { // otra reserva confirmo esas fechas antes
             return next(createError(409, 'The item is not available on those dates'));
         }
         next(error);
@@ -94,7 +94,7 @@ async function findReservationWithOwner(id) {
     return rows[0];
 }
 
-// Los datos de contacto solo se comparten cuando la reserva esta aceptada, para coordinar check-in y check-out
+// El contacto solo se comparte en reservas aceptadas
 const CONTACT_STATUSES = ['confirmed', 'completed'];
 
 async function loadCounterpart(reservation, userId) {
@@ -110,7 +110,7 @@ async function loadCounterpart(reservation, userId) {
         fullName: other.full_name,
         email: other.email,
         phone: other.phone,
-        // la direccion del propietario es el punto de recogida y devolucion
+        // punto de recogida y devolucion
         pickupAddress: isGuest ? other.address : null,
     };
 }
@@ -163,7 +163,7 @@ export async function acceptReservation(req, res, next) {
             [reservation.id]
         );
 
-        // al confirmar una, las demas solicitudes pendientes que se solapaban ya no tienen sentido
+        // rechaza las pendientes que se solapan
         await db.query(
             `UPDATE reservations SET status = 'rejected', updated_at = NOW()
              WHERE item_id = $1 AND status = 'pending' AND id <> $2 AND date_range && $3`,

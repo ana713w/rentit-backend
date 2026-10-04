@@ -1,5 +1,5 @@
-// Crea el usuario administrador definido en .env (ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME): `npm run seed`.
-// Se puede ejecutar varias veces: si el usuario ya existe no toca su contraseña, solo se asegura de que sea admin.
+// Crea el admin definido en .env: `npm run seed`
+// Si ya existe solo se asegura de que sea admin
 import bcrypt from 'bcrypt';
 import { db } from '../src/db/index.js';
 import { registerSchema } from '../src/schemas/auth.schema.js';
