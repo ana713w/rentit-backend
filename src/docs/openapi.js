@@ -273,9 +273,9 @@ export const openapiSpec = {
                 security: cookieAuth,
                 requestBody: {
                     required: true,
-                    content: { 'application/json': { schema: { type: 'object', required: ['userId'], properties: { userId: { type: 'string', format: 'uuid' } } } } },
+                    content: { 'application/json': { schema: { type: 'object', required: ['email'], properties: { email: { type: 'string', format: 'email' } } } } },
                 },
-                responses: { 201: { description: 'User promoted' }, 403: errorResponse('Admin only'), 404: errorResponse('User not found') },
+                responses: { 201: { description: 'User promoted' }, 400: errorResponse('User is already an admin'), 403: errorResponse('Admin only'), 404: errorResponse('No user with that email') },
             },
         },
         '/items': {

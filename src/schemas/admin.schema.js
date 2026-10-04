@@ -1,5 +1,5 @@
 import { z } from "zod";
 
 export const promoteSchema = z.object({
-  userId: z.string().uuid(),
+  email: z.string().trim().email("Invalid email"),
 });
